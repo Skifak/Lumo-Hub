@@ -1,0 +1,74 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble release APK
+        run: ./gradlew assembleRelease --no-daemon
+
+      # The current Gradle config has no signing configuration. With no complete
+      # set of signing secrets, publish the AGP unsigned APK rather than failing.
+      - name: Prepare APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          unsigned_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          test -f "$unsigned_apk"
+
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+            keystore="$RUNNER_TEMP/release.keystore"
+            aligned_apk="$RUNNER_TEMP/app-release-aligned.apk"
+            printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+
+            build_tools_dir="$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+            "$build_tools_dir/zipalign" -f 4 "$unsigned_apk" "$aligned_apk"
+            "$build_tools_dir/apksigner" sign \
+              --ks "$keystore" \
+              --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --ks-key-alias "$KEY_ALIAS" \
+              --key-pass "pass:$KEY_PASSWORD" \
+              --out release.apk \
+              "$aligned_apk"
+            echo "Built and signed release.apk"
+          else
+            cp "$unsigned_apk" release.apk
+            echo "Signing secrets are incomplete or absent; publishing unsigned release.apk"
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
