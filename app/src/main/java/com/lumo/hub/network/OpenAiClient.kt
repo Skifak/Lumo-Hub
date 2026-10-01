@@ -14,7 +14,7 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class OpenAiClient(
-    private val http: OkHttpClient = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).build(),
+    private val http: OkHttpClient = defaultHttpClient(),
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) {
     suspend fun listModels(provider: OpenAiProvider): List<ModelInfo> = execute(provider, "/models") { body ->
@@ -29,27 +29,43 @@ class OpenAiClient(
 
     /** Cold stream: cancelling the collector cancels the underlying HTTP call. */
     fun stream(provider: OpenAiProvider, request: ChatCompletionRequest): Flow<ChatStreamEvent> = callbackFlow {
-        val call = http.newCall(request(provider, "/chat/completions", json.encodeToString(request.copy(stream = true))))
+        val call = streamHttp().newCall(request(provider, "/chat/completions", json.encodeToString(request.copy(stream = true))))
         call.enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
-                if (!call.isCanceled()) trySend(ChatStreamEvent.Completed(null)).also { close(OpenAiException.Network(e)) }
+                if (!call.isCanceled()) close(OpenAiException.Network(e))
             }
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                if (!response.isSuccessful) { close(OpenAiException.Http(response.code, response.body?.string().orEmpty())); return }
+                if (!response.isSuccessful) {
+                    response.use { close(OpenAiException.Http(response.code, response.body?.string().orEmpty())) }
+                    return
+                }
                 try {
-                    response.body?.use { body ->
-                        var event = StringBuilder()
-                        body.source().use { source ->
-                            while (!source.exhausted()) {
-                                val line = source.readUtf8Line().orEmpty()
-                                if (line.isEmpty()) { emitEvent(event.toString()); event = StringBuilder() }
-                                else if (line.startsWith("data:")) event.append(line.removePrefix("data:").trim()).append('\n')
+                    response.use {
+                        response.body?.use { body ->
+                            var event = StringBuilder()
+                            body.source().use { source ->
+                                while (!source.exhausted()) {
+                                    val line = source.readUtf8Line().orEmpty().removeSuffix("\r")
+                                    if (line.isEmpty()) {
+                                        emitEvent(event.toString())
+                                        event = StringBuilder()
+                                    } else if (line.startsWith("data:")) {
+                                        appendData(event, line.substring(5))
+                                    } else if (line == "data") {
+                                        appendData(event, "")
+                                    }
+                                }
                             }
-                        }
-                        if (event.isNotEmpty()) emitEvent(event.toString())
-                    } ?: close(OpenAiException.InvalidResponse(IllegalStateException("empty body")))
+                            if (event.isNotEmpty()) emitEvent(event.toString())
+                        } ?: throw OpenAiException.InvalidResponse(IllegalStateException("empty body"))
+                    }
                     close()
                 } catch (t: Throwable) { close(if (t is OpenAiException) t else OpenAiException.InvalidResponse(t)) }
+            }
+            private fun appendData(event: StringBuilder, value: String) {
+                // SSE removes one optional leading space after the colon. Keep
+                // the rest intact so standard multi-line data events parse correctly.
+                event.append(value.removePrefix(" ")).append('\n')
             }
             private fun emitEvent(data: String) {
                 val payload = data.trim()
@@ -77,6 +93,22 @@ class OpenAiClient(
     private fun request(provider: OpenAiProvider, path: String, body: String? = null, method: String = "POST"): Request {
         val base = provider.baseUrl.trimEnd('/')
         return Request.Builder().url("$base$path").header("Authorization", "Bearer ${provider.apiKey}")
-            .header("Accept", "text/event-stream").method(method, body?.toRequestBody("application/json".toMediaType())).build()
+            .header("Accept", "application/json").method(method, body?.toRequestBody("application/json".toMediaType())).build()
+    }
+
+    private fun streamHttp(): OkHttpClient = http.newBuilder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.MINUTES)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.MINUTES)
+        .build()
+
+    private companion object {
+        fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .callTimeout(2, TimeUnit.MINUTES)
+            .build()
     }
 }

@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -33,7 +35,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.lumo.hub.data.ChatRepository
 import com.lumo.hub.data.ChatSummary
 import com.lumo.hub.theme.lumoVisual
 import com.lumo.hub.ui.components.LumoOrb
@@ -52,6 +57,8 @@ fun DashboardScreen(
     onOpenComingSoon: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val chatRepository = remember(context) { ChatRepository.get(context) }
     Column(
         Modifier
             .fillMaxSize()
@@ -93,7 +100,16 @@ fun DashboardScreen(
             }
             Spacer(Modifier.height(12.dp))
             StaggerIn(index = 4) {
-                ComposerField(onSend = onNewChat)
+                ComposerField(
+                    onSend = { text ->
+                        // UI-safe через существующие callbacks: текст композера
+                        // становится первым сообщением нового чата, навигация —
+                        // через уже подключённый onOpenChat (NavHost не меняем).
+                        val chat = chatRepository.newChat()
+                        chatRepository.appendMessage(chat.id, text, true)
+                        onOpenChat(chat)
+                    },
+                )
             }
             Spacer(Modifier.height(24.dp))
 
@@ -175,13 +191,20 @@ private fun QuickAction(
 }
 
 /**
- * Composer на Dashboard: поле ввода + кнопка отправки. Отправка в моке просто
- * открывает новый чат.
+ * Composer на Dashboard: поле ввода + кнопка отправки. Текст уходит первым
+ * сообщением в новый чат.
  */
 @Composable
-private fun ComposerField(onSend: () -> Unit) {
+private fun ComposerField(onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     val colors = MaterialTheme.colorScheme
+    val submit: () -> Unit = {
+        val trimmed = text.trim()
+        if (trimmed.isNotEmpty()) {
+            onSend(trimmed)
+            text = ""
+        }
+    }
     Surface(
         shape = MaterialTheme.shapes.extraLarge,
         color = colors.surfaceContainer,
@@ -207,6 +230,8 @@ private fun ComposerField(onSend: () -> Unit) {
                     MaterialTheme.typography.bodyMedium.copy(
                         color = colors.onSurface,
                     ),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { submit() }),
                 colors =
                     TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
@@ -217,7 +242,8 @@ private fun ComposerField(onSend: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             IconButton(
-                onClick = { onSend() },
+                onClick = { submit() },
+                enabled = text.isNotBlank(),
                 colors =
                     IconButtonDefaults.iconButtonColors(
                         containerColor = colors.primary,

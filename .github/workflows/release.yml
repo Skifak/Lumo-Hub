@@ -29,8 +29,6 @@ jobs:
       - name: Assemble release APK
         run: ./gradlew assembleRelease --no-daemon
 
-      # The current Gradle config has no signing configuration. With no complete
-      # set of signing secrets, publish the AGP unsigned APK rather than failing.
       - name: Prepare APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -58,8 +56,8 @@ jobs:
               "$aligned_apk"
             echo "Built and signed release.apk"
           else
-            cp "$unsigned_apk" release.apk
-            echo "Signing secrets are incomplete or absent; publishing unsigned release.apk"
+            echo "Signing secrets are incomplete or absent; refusing to publish an unsigned APK" >&2
+            exit 1
           fi
 
       - name: Publish GitHub Release

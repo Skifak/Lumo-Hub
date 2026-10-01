@@ -42,13 +42,15 @@ import com.lumo.hub.ui.settings.SettingsScreen
 @Composable
 fun LumoNavHost(
     settingsRepository: SettingsRepository,
+    chatRepository: ChatRepository? = null,
     modifier: Modifier = Modifier,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val chatRepository = remember(context) { ChatRepository(context) }
+    val repository = chatRepository ?: remember(context) { ChatRepository.get(context) }
     val openAiClient = remember { OpenAiClient() }
     val updateRepository = remember(context) { AppUpdateRepository(context) }
     val updateScope = rememberCoroutineScope()
+    var updateJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var updateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
     val backStack = rememberNavBackStack(Dashboard)
 
@@ -87,13 +89,13 @@ fun LumoNavHost(
                 entryProvider {
                     entry<Dashboard> {
                         DashboardScreen(
-                            chats = chatRepository.chats.collectAsState().value,
+                            chats = repository.chats.collectAsState().value,
                             onOpenChats = { backStack.add(ChatsList) },
                             onOpenChat = { chat ->
                                 backStack.add(Conversation(chat.id, chat.title))
                             },
                             onNewChat = {
-                                val chat = chatRepository.newChat()
+                                val chat = repository.newChat()
                                 backStack.add(Conversation(chat.id, chat.title))
                             },
                             onOpenComingSoon = { backStack.add(ComingSoon) },
@@ -102,16 +104,16 @@ fun LumoNavHost(
                     }
                     entry<ChatsList> {
                         ChatsScreen(
-                            chats = chatRepository.chats.collectAsState().value,
+                            chats = repository.chats.collectAsState().value,
                             onBack = { goBack() },
                             onOpenChat = { chat ->
                                 backStack.add(Conversation(chat.id, chat.title))
                             },
                             onNewChat = {
-                                val chat = chatRepository.newChat()
+                                val chat = repository.newChat()
                                 backStack.add(Conversation(chat.id, chat.title))
                             },
-                            onDeleteChat = { chatRepository.deleteChat(it) },
+                            onDeleteChat = { repository.deleteChat(it) },
                         )
                     }
                     entry<Conversation> { key ->
@@ -140,7 +142,20 @@ fun LumoNavHost(
                             },
                             updateState = updateState,
                             onCheckForUpdate = { updateState = AppUpdateState.Checking; updateScope.launch { updateState = updateRepository.check() } },
-                            onDownloadUpdate = { release -> updateState = AppUpdateState.Downloading; updateScope.launch { updateState = updateRepository.downloadAndInstall(release) } },
+                             onDownloadUpdate = { release ->
+                                 updateJob?.cancel()
+                                 updateState = AppUpdateState.Downloading(0)
+                                 updateJob = updateScope.launch {
+                                     updateState = updateRepository.downloadAndInstall(release) { progress ->
+                                         updateState = AppUpdateState.Downloading(progress)
+                                     }
+                                 }
+                             },
+                             onCancelUpdate = {
+                                 updateJob?.cancel()
+                                 updateJob = null
+                                 updateState = AppUpdateState.Idle
+                             },
                         )
                     }
                     entry<ComingSoon> {

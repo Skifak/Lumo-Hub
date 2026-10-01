@@ -72,6 +72,7 @@ fun SettingsScreen(
     updateState: AppUpdateState = AppUpdateState.Idle,
     onCheckForUpdate: () -> Unit = {},
     onDownloadUpdate: (AppRelease) -> Unit = {},
+    onCancelUpdate: () -> Unit = {},
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
     var connectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.Idle) }
@@ -136,7 +137,7 @@ fun SettingsScreen(
                 Text(when (val status = updateState) {
                     AppUpdateState.Idle -> "Проверить последнюю версию на GitHub"
                     AppUpdateState.Checking -> "Проверка обновлений…"
-                    AppUpdateState.Downloading -> "Скачивание APK…"
+                    is AppUpdateState.Downloading -> if (status.progress > 0) "Скачивание APK… ${status.progress}%" else "Скачивание APK…"
                     is AppUpdateState.Current -> "Установлена последняя версия (${status.version})"
                     is AppUpdateState.Available -> "Доступна версия ${status.release.version}"
                     is AppUpdateState.Error -> status.message
@@ -144,7 +145,11 @@ fun SettingsScreen(
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(enabled = updateState !is AppUpdateState.Checking && updateState !is AppUpdateState.Downloading, onClick = onCheckForUpdate) { Text("Проверить") }
-                    if (updateState is AppUpdateState.Available) Button(onClick = { onDownloadUpdate(updateState.release) }) { Text("Скачать") }
+                    when (val status = updateState) {
+                        is AppUpdateState.Available -> Button(onClick = { onDownloadUpdate(status.release) }) { Text("Скачать") }
+                        is AppUpdateState.Downloading -> OutlinedButton(onClick = onCancelUpdate) { Text("Отмена") }
+                        else -> Unit
+                    }
                 }
             }
         }

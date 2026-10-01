@@ -4,6 +4,10 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -14,7 +18,7 @@ data class AppRelease(val version: String, val downloadUrl: String)
 sealed interface AppUpdateState {
     data object Idle : AppUpdateState
     data object Checking : AppUpdateState
-    data object Downloading : AppUpdateState
+    data class Downloading(val progress: Int) : AppUpdateState
     data class Current(val version: String) : AppUpdateState
     data class Available(val release: AppRelease) : AppUpdateState
     data class Error(val message: String) : AppUpdateState
@@ -42,17 +46,49 @@ class AppUpdateRepository(private val context: Context) {
         } catch (t: Throwable) { AppUpdateState.Error(t.message ?: "Не удалось проверить обновления") }
     }
 
-    suspend fun downloadAndInstall(release: AppRelease): AppUpdateState = withContext(Dispatchers.IO) {
+    suspend fun downloadAndInstall(release: AppRelease, onProgress: (Int) -> Unit = {}): AppUpdateState = withContext(Dispatchers.IO) {
+        val updatesDir = File(context.cacheDir, "updates").apply { mkdirs() }
+        val temporaryApk = File(updatesDir, ".release.apk.download")
+        val apk = File(updatesDir, "release.apk")
+        var call: okhttp3.Call? = null
         try {
-            val apk = File(context.cacheDir, "updates/release.apk").apply { parentFile?.mkdirs() }
-            client.newCall(Request.Builder().url(release.downloadUrl).build()).execute().use { response ->
+            temporaryApk.delete()
+            call = client.newCall(Request.Builder().url(release.downloadUrl).build())
+            val activeCall = call!!
+            currentCoroutineContext().job.invokeOnCompletion { activeCall.cancel() }
+            activeCall.execute().use { response ->
                 if (!response.isSuccessful) error("Не удалось скачать APK: ${response.code}")
-                response.body?.byteStream()?.use { input -> apk.outputStream().use { input.copyTo(it) } } ?: error("Пустой APK")
+                val body = response.body ?: error("Пустой APK")
+                val total = body.contentLength()
+                var downloaded = 0L
+                body.byteStream().use { input ->
+                    temporaryApk.outputStream().use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (true) {
+                            currentCoroutineContext().ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            downloaded += count
+                            // A server may omit Content-Length; 0 means indeterminate in the UI.
+                            onProgress(if (total > 0) ((downloaded * 100 / total).toInt().coerceIn(0, 100)) else 0)
+                        }
+                    }
+                }
             }
+            currentCoroutineContext().ensureActive()
+            if (!temporaryApk.isFile || temporaryApk.length() == 0L) error("Пустой APK")
+            if (apk.exists() && !apk.delete()) error("Не удалось заменить старый APK")
+            if (!temporaryApk.renameTo(apk)) error("Не удалось сохранить APK")
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", apk)
             context.startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(uri, "application/vnd.android.package-archive"); addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION) })
             AppUpdateState.Available(release)
-        } catch (t: Throwable) { AppUpdateState.Error(t.message ?: "Не удалось скачать обновление") }
+        } catch (t: CancellationException) {
+            throw t
+        } catch (t: Throwable) { AppUpdateState.Error(t.message ?: "Не удалось скачать обновление")
+        } finally {
+            if (temporaryApk.exists()) temporaryApk.delete()
+        }
     }
 
     private fun compare(a: String, b: String): Int = (0..2).firstOrNull { a.split('.')[it].toInt() != (b.split('.').getOrNull(it)?.toIntOrNull() ?: 0) }?.let { a.split('.')[it].toInt().compareTo(b.split('.').getOrNull(it)?.toIntOrNull() ?: 0) } ?: 0
