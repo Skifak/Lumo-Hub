@@ -1,6 +1,7 @@
 package com.lumo.hub.network
 
 import kotlinx.serialization.Serializable
+import java.net.SocketTimeoutException
 
 data class OpenAiProvider(val baseUrl: String, val apiKey: String)
 @Serializable data class ChatMessageRequest(val role: String, val content: String)
@@ -22,6 +23,27 @@ sealed class OpenAiException(message: String, cause: Throwable? = null) : Except
     class Http(val code: Int, val body: String) : OpenAiException("HTTP $code: $body")
     class Network(cause: Throwable) : OpenAiException("Network error", cause)
     class InvalidResponse(cause: Throwable) : OpenAiException("Invalid API response", cause)
+    class EmptyResponse : OpenAiException("Empty API response")
+
+    val userMessage: String
+        get() = when (this) {
+            is Http -> when (code) {
+                401, 403 -> NetworkErrorMessages.INVALID_API_KEY
+                408, 504 -> NetworkErrorMessages.TIMEOUT
+                else -> NetworkErrorMessages.API_ERROR
+            }
+            is Network -> if (cause is SocketTimeoutException) NetworkErrorMessages.TIMEOUT else NetworkErrorMessages.NETWORK
+            is EmptyResponse -> NetworkErrorMessages.EMPTY_RESPONSE
+            is InvalidResponse -> NetworkErrorMessages.API_ERROR
+        }
+}
+
+object NetworkErrorMessages {
+    const val NETWORK = "Не удалось подключиться к сети. Проверьте интернет-соединение."
+    const val API_ERROR = "Сервис API временно недоступен. Попробуйте ещё раз позже."
+    const val INVALID_API_KEY = "Неверный API-ключ. Проверьте ключ в настройках."
+    const val TIMEOUT = "Время ожидания истекло. Попробуйте ещё раз."
+    const val EMPTY_RESPONSE = "Сервис вернул пустой ответ. Попробуйте ещё раз."
 }
 
 @Serializable internal data class ModelsResponse(val data: List<ModelJson> = emptyList())

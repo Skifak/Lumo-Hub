@@ -24,7 +24,9 @@ class OpenAiClient(
     suspend fun complete(provider: OpenAiProvider, request: ChatCompletionRequest): ChatCompletion =
         execute(provider, "/chat/completions", "POST", json.encodeToString(request)) { body ->
             val result = json.decodeFromString<CompletionJson>(body)
-            ChatCompletion(result.id, result.model, result.choices.firstOrNull()?.message?.content.orEmpty())
+            val content = result.choices.firstOrNull()?.message?.content.orEmpty()
+            if (content.isBlank()) throw OpenAiException.EmptyResponse()
+            ChatCompletion(result.id, result.model, content)
         }
 
     /** Cold stream: cancelling the collector cancels the underlying HTTP call. */

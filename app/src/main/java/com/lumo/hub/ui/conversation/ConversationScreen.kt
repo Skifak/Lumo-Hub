@@ -23,17 +23,19 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -44,8 +46,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.ArrowDropDown
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ErrorOutline
@@ -59,8 +59,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -78,8 +76,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -97,7 +93,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lumo.hub.data.ChatRepository
-import com.lumo.hub.data.ChatRole
 import com.lumo.hub.data.ModelsState
 import com.lumo.hub.data.SettingsRepository
 import com.lumo.hub.network.ChatCompletionRequest
@@ -107,6 +102,7 @@ import com.lumo.hub.network.OpenAiClient
 import com.lumo.hub.network.OpenAiProvider
 import com.lumo.hub.theme.lumoVisual
 import com.lumo.hub.ui.components.ChatDraftStore
+import com.lumo.hub.ui.components.LumoModelSheet
 import com.lumo.hub.ui.components.LumoOrb
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -116,7 +112,7 @@ import kotlinx.coroutines.launch
 private data class ChatUiError(val details: String, val retryText: String)
 
 /**
- * Экран разговора: компактная шапка (название, роль • модель), пузыри сообщений
+ * Экран разговора: компактная шапка (название + выбор модели), пузыри сообщений
  * с Markdown и код-блоками, streaming-ответ с typing-индикатором и Stop,
  * inline-ошибки с Retry, per-chat draft, smart autoscroll и jump-to-bottom.
  */
@@ -146,11 +142,9 @@ fun ConversationScreen(
     var autoScrollAfterUpdate by remember(chatId) { mutableStateOf(false) }
     var isStreaming by remember(chatId) { mutableStateOf(false) }
     var errorState by remember(chatId) { mutableStateOf<ChatUiError?>(null) }
-    var roleSheet by remember { mutableStateOf(false) }
     var modelSheet by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboard = LocalClipboardManager.current
-    val focusRequester = remember { FocusRequester() }
     // Название обновляется по первому сообщению — показываем актуальное из хранилища.
     val headerTitle = if (conversation.title != "Новый чат") conversation.title else title
 
@@ -327,7 +321,10 @@ fun ConversationScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .imePadding(),
+                // safeDrawing bottom = max(ime, navigationBars): при открытой
+                // клавиатуре composer прижат к ней без двойного отступа-зазора,
+                // при закрытой — не залезает под gesture-навбар.
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)),
         ) {
             // ── Компактная шапка ────────────────────────────────────────────
             Row(
@@ -350,27 +347,24 @@ fun ConversationScreen(
                         color = colors.onBackground,
                         maxLines = 1,
                     )
-                    // Роль + модель одной строкой; тап открывает bottom sheet роли.
+                    // Модель одной строкой; тап открывает кастомный picker моделей.
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clip(MaterialTheme.shapes.small).combinedClickableForSubtitle { roleSheet = true },
+                        modifier = Modifier.clip(MaterialTheme.shapes.small).combinedClickableForSubtitle { modelSheet = true },
                     ) {
                         Text(
-                            text = conversation.role.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.onSurfaceVariant,
-                        )
-                        Text(
-                            text = "  •  ${selectedModel.ifBlank { "модель" }}",
+                            text = selectedModel.ifBlank { "модель не выбрана" },
                             style = MaterialTheme.typography.labelSmall,
                             color = colors.onSurfaceVariant,
                             maxLines = 1,
                         )
                         Icon(
-                            Icons.Outlined.ArrowDropDown,
-                            contentDescription = "Изменить роль",
+                            Icons.Outlined.Tune,
+                            contentDescription = "Выбрать модель",
                             tint = colors.onSurfaceVariant,
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier
+                                .padding(start = 4.dp)
+                                .size(12.dp),
                         )
                     }
                 }
@@ -395,13 +389,7 @@ fun ConversationScreen(
                     val visibleMessages = conversation.messages.filterNot { !it.isUser && it.text.isBlank() }
                     if (visibleMessages.isEmpty() && !typingVisible) {
                         item(key = "empty-state") {
-                            EmptyConversationState(
-                                onSuggestion = { suggestion ->
-                                    input = suggestion
-                                    ChatDraftStore.set(chatId, suggestion)
-                                    runCatching { focusRequester.requestFocus() }
-                                },
-                            )
+                            EmptyConversationState()
                         }
                     }
                     items(visibleMessages, key = { it.id }) { message ->
@@ -470,7 +458,7 @@ fun ConversationScreen(
                         .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 Row(
-                    Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    Modifier.padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 6.dp),
                     verticalAlignment = Alignment.Bottom,
                 ) {
                     androidx.compose.material3.TextField(
@@ -495,7 +483,7 @@ fun ConversationScreen(
                                 unfocusedIndicatorColor = Color.Transparent,
                             ),
                         maxLines = 5,
-                        modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                        modifier = Modifier.weight(1f),
                     )
                     // Send ↔ Stop: во время стрима существующий cancellation flow.
                     AnimatedContent(
@@ -516,6 +504,11 @@ fun ConversationScreen(
                                     sendMessage(input)
                                 }
                             },
+                            // Компактная кнопка, оптически выровнена по строке ввода.
+                            modifier =
+                                Modifier
+                                    .padding(start = 4.dp, bottom = 3.dp)
+                                    .size(44.dp),
                             colors =
                                 IconButtonDefaults.iconButtonColors(
                                     containerColor = if (streaming) colors.error else colors.primary,
@@ -525,6 +518,7 @@ fun ConversationScreen(
                             Icon(
                                 if (streaming) Icons.Outlined.Stop else Icons.Outlined.Send,
                                 contentDescription = if (streaming) "Остановить генерацию" else "Отправить",
+                                modifier = Modifier.size(22.dp),
                             )
                         }
                     }
@@ -540,114 +534,23 @@ fun ConversationScreen(
         )
     }
 
-    // ── Bottom sheet: роль чата ─────────────────────────────────────────────
-    if (roleSheet) {
-        ModalBottomSheet(onDismissRequest = { roleSheet = false }) {
-            Column(Modifier.padding(horizontal = 20.dp)) {
-                Text(
-                    text = "Роль чата",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = colors.onSurface,
-                )
-                Text(
-                    text = "Как Lumo ведёт себя в этом диалоге",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-                Spacer(Modifier.height(8.dp))
-                ChatRole.entries.forEach { role ->
-                    val selected = role == conversation.role
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(MaterialTheme.shapes.medium)
-                                .combinedClickable(onClick = {
-                                    repository.setRole(chatId, role)
-                                    conversation = repository.conversation(chatId)
-                                    roleSheet = false
-                                })
-                                .padding(horizontal = 4.dp, vertical = 10.dp),
-                    ) {
-                        Box(
-                            Modifier
-                                .size(10.dp)
-                                .clip(CircleShape)
-                                .background(if (selected) colors.primary else colors.outlineVariant),
-                        )
-                        Spacer(Modifier.size(12.dp))
-                        Text(
-                            text = role.label,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = if (selected) colors.primary else colors.onSurface,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-                Spacer(Modifier.height(28.dp))
-            }
-        }
-    }
-
-    // ── Bottom sheet: модель ────────────────────────────────────────────────
+    // ── Кастомный picker модели (глобальный Lumo-стиль) ──────────────────────
     if (modelSheet) {
-        ModalBottomSheet(onDismissRequest = { modelSheet = false }) {
-            Column(Modifier.padding(horizontal = 20.dp)) {
-                Text(
-                    text = "Модель",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = colors.onSurface,
-                )
-                Spacer(Modifier.height(8.dp))
-                if (models.isEmpty()) {
-                    Text(
-                        text = "Нет доступных моделей — проверьте подключение в настройках.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.onSurfaceVariant,
-                    )
-                    if (onOpenSettings != null) {
-                        TextButton(onClick = { modelSheet = false; onOpenSettings() }) { Text("Открыть настройки") }
-                    }
-                } else {
-                    models.forEach { model ->
-                        val selected = model.id == selectedModel
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(MaterialTheme.shapes.medium)
-                                    .combinedClickable(onClick = {
-                                        selectedModel = model.id
-                                        repository.setModel(chatId, model.id)
-                                        conversation = repository.conversation(chatId)
-                                        modelSheet = false
-                                    })
-                                    .padding(horizontal = 4.dp, vertical = 10.dp),
-                        ) {
-                            Text(
-                                text = model.id,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (selected) colors.primary else colors.onSurface,
-                                maxLines = 1,
-                                modifier = Modifier.weight(1f),
-                            )
-                            if (selected) {
-                                Icon(
-                                    Icons.Outlined.Check,
-                                    contentDescription = "Выбрана",
-                                    tint = colors.primary,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(28.dp))
-            }
-        }
+        LumoModelSheet(
+            title = "Модель",
+            subtitle = "Какая модель отвечает в этом чате",
+            models = models.map { it.id },
+            selected = selectedModel,
+            emptyText = "Нет доступных моделей — проверьте подключение в настройках.",
+            onDismiss = { modelSheet = false },
+            onSelect = { id ->
+                selectedModel = id
+                repository.setModel(chatId, id)
+                conversation = repository.conversation(chatId)
+                modelSheet = false
+            },
+            onOpenSettings = onOpenSettings,
+        )
     }
 }
 
@@ -656,22 +559,14 @@ fun ConversationScreen(
 private fun Modifier.combinedClickableForSubtitle(onClick: () -> Unit): Modifier =
     this.combinedClickable(onClick = onClick)
 
-/** Empty state (DESIGN.md §4): orb, приглашение и suggestion chips. */
-@OptIn(ExperimentalLayoutApi::class)
+/** Empty state (DESIGN.md §4): orb и мягкое приглашение, без подсказок-чипов. */
 @Composable
-private fun EmptyConversationState(onSuggestion: (String) -> Unit) {
+private fun EmptyConversationState() {
     val colors = MaterialTheme.colorScheme
-    val suggestions =
-        listOf(
-            "Объясни простыми словами, как работает квантовый компьютер",
-            "Помоги составить план на неделю",
-            "Придумай идеи для пет-проекта",
-            "Переведи текст на английский",
-        )
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(top = 40.dp),
+            .padding(top = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         LumoOrb(size = 84.dp)
@@ -682,20 +577,11 @@ private fun EmptyConversationState(onSuggestion: (String) -> Unit) {
             color = colors.onBackground,
         )
         Text(
-            text = "Задайте вопрос или выберите подсказку",
+            text = "Задайте вопрос — ответ появится здесь",
             style = MaterialTheme.typography.bodyMedium,
             color = colors.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp),
         )
-        Spacer(Modifier.height(24.dp))
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            suggestions.forEach { suggestion ->
-                SuggestionChip(onClick = { onSuggestion(suggestion) }, label = { Text(suggestion) })
-            }
-        }
     }
 }
 

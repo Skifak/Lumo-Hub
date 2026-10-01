@@ -10,22 +10,25 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowOutward
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Forest
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Psychology
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,48 +37,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumo.hub.data.ChatSummary
+import com.lumo.hub.data.WeatherRepository
+import com.lumo.hub.network.ForecastResponse
 import com.lumo.hub.theme.lumoVisual
 import com.lumo.hub.ui.components.ChatAvatar
 import com.lumo.hub.ui.components.SectionTitle
 import com.lumo.hub.ui.components.StaggerIn
 import java.util.Calendar
 
-/** Верхняя панель: логотип-orb, название, кнопка настроек (DESIGN.md §4). */
-@Composable
-fun DashboardTopBar(
-    onOpenSettings: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val visual = lumoVisual()
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        // логотип: маленький orb
-        Box(
-            Modifier
-                .size(30.dp)
-                .clip(CircleShape)
-                .background(visual.logoBrush),
-        )
-        Spacer(Modifier.size(10.dp))
-        Text(
-            text = "Lumo Hub",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Spacer(Modifier.weight(1f))
-        IconButton(onClick = onOpenSettings) {
-            Icon(
-                imageVector = Icons.Outlined.Settings,
-                contentDescription = "Настройки",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-/** Приветствие по времени суток. */
+/** Приветствие по времени суток — компактный заголовок Dashboard. */
 @Composable
 fun GreetingBlock(modifier: Modifier = Modifier) {
     val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
@@ -86,20 +56,53 @@ fun GreetingBlock(modifier: Modifier = Modifier) {
             in 18..22 -> "Добрый вечер"
             else -> "Доброй ночи"
         }
-    Column(modifier = modifier) {
-        Text(
-            text = hello,
-            style = MaterialTheme.typography.displayLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Text(
-            text = "Что будем делать?",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 6.dp),
-        )
+    Text(
+        text = hello,
+        style = MaterialTheme.typography.displayLarge,
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = modifier,
+    )
+}
+
+@Composable
+fun WeatherCard(repository: WeatherRepository, onClick: () -> Unit) {
+    var forecast by remember { mutableStateOf<ForecastResponse?>(null) }
+    val location = repository.savedLocation()
+    LaunchedEffect(location) { if (location != null) forecast = runCatching { repository.forecast() }.getOrNull() }
+    val colors = MaterialTheme.colorScheme
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Cloud, contentDescription = null, tint = colors.primary)
+                Spacer(Modifier.size(8.dp))
+                Text("Погода", style = MaterialTheme.typography.titleMedium, color = colors.onSurface)
+                Spacer(Modifier.weight(1f))
+                Text("Открыть", style = MaterialTheme.typography.labelLarge, color = colors.primary)
+            }
+            Spacer(Modifier.height(8.dp))
+            if (location == null) {
+                Text("Добавьте город, чтобы увидеть прогноз", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+            } else if (forecast?.current == null) {
+                Text(location.name, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
+                Text("Загрузка прогноза", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            } else {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text("${forecast!!.current!!.temperatureCelsius.formatOne()} °C", style = MaterialTheme.typography.headlineMedium, color = colors.onSurface)
+                    Spacer(Modifier.size(8.dp))
+                    Text(location.name, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
+                }
+            }
+        }
     }
 }
+
+private fun Double.formatOne(): String = String.format(java.util.Locale.US, "%.1f", this)
 
 /** Крупная hero-карточка AI Chat с CTA «Новый чат». */
 @Composable

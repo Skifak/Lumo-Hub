@@ -29,9 +29,7 @@ class ChatRepository(context: Context) {
         ?: Conversation(id, "Новый чат", messages = emptyList())
 
     fun newChat(): ChatSummary {
-        val chat = Conversation("chat-${System.currentTimeMillis()}", "Новый чат", messages = emptyList(), timestamp = System.currentTimeMillis())
-        store.write(listOf(chat) + store.read())
-        return summary(chat)
+        return store.getOrCreateEmptyChat()
     }
 
     fun deleteChat(id: String) { store.write(store.read().filterNot { it.id == id }) }
@@ -78,6 +76,22 @@ class ChatRepository(context: Context) {
             check(temp.renameTo(file)) { "Unable to atomically save chat history" }
             items = value
             _chats.value = value.sortedByDescending { it.timestamp }.map(::summary)
+        }
+
+        fun getOrCreateEmptyChat(): ChatSummary = lock.withLock {
+            items.firstOrNull { it.messages.isEmpty() }?.let(::summary)?.let { return it }
+            val timestamp = System.currentTimeMillis()
+            val chat = Conversation("chat-$timestamp-${System.nanoTime()}", "Новый чат", messages = emptyList(), timestamp = timestamp)
+            val value = listOf(chat) + items
+            val temp = File(file.parentFile, "$FILE_NAME.tmp")
+            FileOutputStream(temp).use { output ->
+                output.write(encode(value).toByteArray(Charsets.UTF_8))
+                output.fd.sync()
+            }
+            check(temp.renameTo(file)) { "Unable to atomically save chat history" }
+            items = value
+            _chats.value = value.sortedByDescending { it.timestamp }.map(::summary)
+            summary(chat)
         }
 
         private fun loadOrMigrate(context: Context): List<Conversation> {

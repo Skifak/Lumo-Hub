@@ -11,8 +11,8 @@ android {
         applicationId = "com.lumo.hub"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
     }
 
     buildTypes {
@@ -85,4 +85,6 @@ dependencies {
   implementation("com.squareup.okhttp3:okhttp:4.12.0")
   implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
   implementation("androidx.datastore:datastore-preferences:1.1.7")
+  implementation("androidx.work:work-runtime-ktx:2.10.1")
+  implementation("androidx.core:core-ktx:1.18.0")
 }

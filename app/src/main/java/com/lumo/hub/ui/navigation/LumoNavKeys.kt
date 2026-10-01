@@ -10,6 +10,9 @@ import kotlinx.serialization.Serializable
 data object Dashboard : NavKeyMarker
 
 @Serializable
+data object Weather : NavKeyMarker
+
+@Serializable
 data object ChatsList : NavKeyMarker
 
 @Serializable
