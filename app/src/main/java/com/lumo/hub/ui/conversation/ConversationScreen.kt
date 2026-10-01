@@ -25,9 +25,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,25 +43,49 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lumo.hub.data.ChatRepository
 import com.lumo.hub.data.Conversation
+import com.lumo.hub.data.SettingsRepository
+import com.lumo.hub.data.ModelsState
+import com.lumo.hub.network.ChatCompletionRequest
+import com.lumo.hub.network.ChatMessageRequest
+import com.lumo.hub.network.ChatStreamEvent
+import com.lumo.hub.network.OpenAiClient
+import com.lumo.hub.network.OpenAiProvider
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 /**
- * Экран разговора (mock): верхняя панель с названием и ролью, пузыри
- * сообщений, composer. Streaming-логика подключается на следующих этапах.
+ * Экран разговора: верхняя панель с названием и ролью, пузыри сообщений,
+ * composer и потоковый ответ провайдера.
  */
 @Composable
 fun ConversationScreen(
     title: String,
     chatId: String = "draft",
     onBack: () -> Unit,
+    settingsRepository: SettingsRepository,
+    openAiClient: OpenAiClient,
 ) {
     // В моке берём готовый диалог по title-подсказке; для новых чатов — пусто.
     val context = LocalContext.current
     val repository = remember { ChatRepository(context) }
     var conversation by remember(chatId) { mutableStateOf(repository.conversation(chatId)) }
     var input by remember { mutableStateOf("") }
+    var modelMenu by remember { mutableStateOf(false) }
+    val modelsState by settingsRepository.state.collectAsStateWithLifecycle()
+    val models = (modelsState.modelsState as? ModelsState.Ready)?.models.orEmpty()
+    var selectedModel by remember(chatId, modelsState.provider.model) { mutableStateOf(conversation.model.ifBlank { modelsState.provider.model }) }
     val listState = rememberLazyListState()
     val colors = MaterialTheme.colorScheme
+    val scope = rememberCoroutineScope()
+    var streamJob by remember(chatId) { mutableStateOf<Job?>(null) }
+
+    DisposableEffect(chatId) {
+        onDispose { streamJob?.cancel() }
+    }
 
     LaunchedEffect(conversation.messages.size) {
         if (conversation.messages.isNotEmpty()) {
@@ -90,6 +120,12 @@ fun ConversationScreen(
                     color = colors.onBackground,
                     maxLines = 1,
                 )
+                Box {
+                    TextButton(onClick = { modelMenu = true }, enabled = models.isNotEmpty()) { Text(selectedModel.ifBlank { "Модель" }) }
+                    DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                        models.forEach { model -> DropdownMenuItem(text = { Text(model.id) }, onClick = { selectedModel = model.id; repository.setModel(chatId, model.id); conversation = repository.conversation(chatId); modelMenu = false }) }
+                    }
+                }
                 Text(
                     text = conversation.role.label,
                     style = MaterialTheme.typography.labelSmall,
@@ -154,7 +190,61 @@ fun ConversationScreen(
                     modifier = Modifier.weight(1f),
                 )
                 IconButton(
-                    onClick = { if (input.isNotBlank()) { repository.appendMessage(chatId, input.trim(), true); conversation = repository.conversation(chatId); input = "" } },
+                    onClick = {
+                        val text = input.trim()
+                        val provider = modelsState.provider
+                        val model = selectedModel.trim()
+                        if (text.isBlank()) return@IconButton
+
+                        // Проверяем настройки до записи сообщения, чтобы не оставлять
+                        // в истории запрос, который невозможно отправить.
+                        val validationError = when {
+                            provider.baseUrl.isBlank() -> "Укажите адрес API в настройках"
+                            provider.apiKey.isBlank() -> "Укажите API-ключ в настройках"
+                            model.isBlank() -> "Выберите модель в настройках"
+                            else -> null
+                        }
+                        if (validationError != null) {
+                            repository.appendMessage(chatId, "Ошибка: $validationError", false)
+                            conversation = repository.conversation(chatId)
+                            return@IconButton
+                        }
+
+                        streamJob?.cancel()
+                        repository.appendMessage(chatId, text, true)
+                        repository.setModel(chatId, model)
+                        val assistantMessage = repository.appendMessage(chatId, "", false)
+                        conversation = repository.conversation(chatId)
+                        input = ""
+                        val history = conversation.messages.map {
+                            ChatMessageRequest(if (it.isUser) "user" else "assistant", it.text)
+                        }
+                        streamJob = scope.launch {
+                            var answer = ""
+                            try {
+                                openAiClient.stream(
+                                    OpenAiProvider(provider.baseUrl.trim(), provider.apiKey),
+                                    ChatCompletionRequest(model = model, messages = history),
+                                ).collect { event ->
+                                    when (event) {
+                                        is ChatStreamEvent.Delta -> {
+                                            answer += event.text
+                                            repository.updateMessage(chatId, assistantMessage.id, answer)
+                                            conversation = repository.conversation(chatId)
+                                        }
+                                        is ChatStreamEvent.Completed -> Unit
+                                    }
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Throwable) {
+                                val details = error.message ?: "Не удалось получить ответ"
+                                val savedText = if (answer.isBlank()) "Ошибка: $details" else "$answer\n\nОшибка: $details"
+                                repository.updateMessage(chatId, assistantMessage.id, savedText)
+                                conversation = repository.conversation(chatId)
+                            }
+                        }
+                    },
                     colors =
                         IconButtonDefaults.iconButtonColors(
                             containerColor = colors.primary,

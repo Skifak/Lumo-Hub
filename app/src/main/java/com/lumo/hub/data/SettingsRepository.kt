@@ -2,6 +2,7 @@ package com.lumo.hub.data
 
 import android.content.Context
 import com.lumo.hub.security.ApiKeyStore
+import com.lumo.hub.network.ModelInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,10 +20,18 @@ data class ProviderProfile(
     val model: String = "",
 )
 
+sealed interface ModelsState {
+    data object Idle : ModelsState
+    data object Loading : ModelsState
+    data class Ready(val models: List<ModelInfo>) : ModelsState
+    data class Error(val message: String) : ModelsState
+}
+
 data class SettingsUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val provider: ProviderProfile = ProviderProfile(),
     val apiKeyVisible: Boolean = false,
+    val modelsState: ModelsState = ModelsState.Idle,
 )
 
 class SettingsRepository(context: Context? = null) {
@@ -50,6 +59,17 @@ class SettingsRepository(context: Context? = null) {
     fun updateProvider(transform: (ProviderProfile) -> ProviderProfile) {
         val provider = transform(_state.value.provider)
         _state.value = _state.value.copy(provider = provider)
+    }
+
+    fun setModelsLoading() { _state.value = _state.value.copy(modelsState = ModelsState.Loading) }
+
+    fun setModelsResult(result: Result<List<ModelInfo>>) {
+        _state.value = _state.value.copy(
+            modelsState = result.fold(
+                { ModelsState.Ready(it.sortedBy(ModelInfo::id)) },
+                { ModelsState.Error(it.message ?: "Не удалось получить список моделей") },
+            ),
+        )
     }
 
     fun saveProvider() {

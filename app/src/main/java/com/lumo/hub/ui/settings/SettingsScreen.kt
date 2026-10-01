@@ -21,6 +21,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,10 +47,14 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.lumo.hub.data.ProviderProfile
 import com.lumo.hub.data.SettingsUiState
+import com.lumo.hub.data.ModelsState
 import com.lumo.hub.data.ThemeMode
+import com.lumo.hub.network.ModelInfo
 import com.lumo.hub.theme.lumoVisual
 import com.lumo.hub.ui.components.SectionTitle
 import com.lumo.hub.ui.components.StaggerIn
+import com.lumo.hub.network.AppRelease
+import com.lumo.hub.network.AppUpdateState
 import kotlinx.coroutines.launch
 
 /**
@@ -62,7 +68,10 @@ fun SettingsScreen(
     onProviderChange: ((ProviderProfile) -> ProviderProfile) -> Unit,
     onToggleApiKeyVisibility: () -> Unit,
     onSaveProvider: () -> Unit = {},
-    onCheckConnection: suspend (ProviderProfile) -> Result<Int> = { Result.success(0) },
+    onCheckConnection: suspend (ProviderProfile) -> Result<List<ModelInfo>> = { Result.success(emptyList()) },
+    updateState: AppUpdateState = AppUpdateState.Idle,
+    onCheckForUpdate: () -> Unit = {},
+    onDownloadUpdate: (AppRelease) -> Unit = {},
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
     var connectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.Idle) }
@@ -115,6 +124,27 @@ fun SettingsScreen(
                             color = colors.onSurfaceVariant,
                         )
                     }
+                }
+            }
+        }
+        Spacer(Modifier.height(22.dp))
+
+        SectionTitle(text = "Обновление приложения")
+        Spacer(Modifier.height(10.dp))
+        Card(colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Text(when (val status = updateState) {
+                    AppUpdateState.Idle -> "Проверить последнюю версию на GitHub"
+                    AppUpdateState.Checking -> "Проверка обновлений…"
+                    AppUpdateState.Downloading -> "Скачивание APK…"
+                    is AppUpdateState.Current -> "Установлена последняя версия (${status.version})"
+                    is AppUpdateState.Available -> "Доступна версия ${status.release.version}"
+                    is AppUpdateState.Error -> status.message
+                })
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(enabled = updateState !is AppUpdateState.Checking && updateState !is AppUpdateState.Downloading, onClick = onCheckForUpdate) { Text("Проверить") }
+                    if (updateState is AppUpdateState.Available) Button(onClick = { onDownloadUpdate(updateState.release) }) { Text("Скачать") }
                 }
             }
         }
@@ -182,15 +212,24 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
-                    value = state.provider.model,
-                    onValueChange = { value -> onProviderChange { it.copy(model = value) } },
-                    label = { Text("Model") },
-                    placeholder = { Text("gpt-4o-mini") },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                var modelMenu by remember { mutableStateOf(false) }
+                val models = (state.modelsState as? ModelsState.Ready)?.models.orEmpty()
+                Box {
+                    OutlinedButton(
+                        enabled = models.isNotEmpty(),
+                        onClick = { modelMenu = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.medium,
+                    ) { Text(state.provider.model.ifBlank { "Выберите модель" }) }
+                    DropdownMenu(expanded = modelMenu, onDismissRequest = { modelMenu = false }) {
+                        models.forEach { model ->
+                            DropdownMenuItem(
+                                text = { Text(model.id) },
+                                onClick = { onProviderChange { it.copy(model = model.id) }; modelMenu = false },
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
@@ -201,9 +240,9 @@ fun SettingsScreen(
                                 if (state.provider.baseUrl.isBlank() || state.provider.apiKey.isBlank()) {
                                     connectionState = ConnectionState.Error("Укажите Base URL и API key")
                                 } else {
-                                    val result = onCheckConnection(state.provider)
-                                    connectionState = result.fold(
-                                        onSuccess = { ConnectionState.Success("Подключение успешно") },
+                                     val result = onCheckConnection(state.provider)
+                                     connectionState = result.fold(
+                                         onSuccess = { models -> if (models.isEmpty()) ConnectionState.Error("Список моделей пуст") else ConnectionState.Success("Подключение успешно: ${models.size} моделей") },
                                         onFailure = { ConnectionState.Error(it.message ?: "Не удалось подключиться") },
                                     )
                                 }
@@ -214,6 +253,7 @@ fun SettingsScreen(
                         Text("Проверить подключение")
                     }
                     Button(
+                        enabled = state.modelsState is ModelsState.Ready && models.isNotEmpty() && state.provider.model.isNotBlank(),
                         onClick = {
                             onSaveProvider()
                             connectionState = ConnectionState.Success("Настройки сохранены")
@@ -229,6 +269,12 @@ fun SettingsScreen(
                     ConnectionState.Loading -> Text("Проверка подключения…", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     is ConnectionState.Success -> Text(status.message, style = MaterialTheme.typography.bodySmall, color = colors.primary)
                     is ConnectionState.Error -> Text(status.message, style = MaterialTheme.typography.bodySmall, color = colors.error)
+                }
+                when (val modelsStatus = state.modelsState) {
+                    ModelsState.Idle -> Text("Проверьте подключение, чтобы загрузить модели", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                    ModelsState.Loading -> Text("Загрузка моделей…", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                    is ModelsState.Ready -> if (modelsStatus.models.isEmpty()) Text("Модели не найдены", style = MaterialTheme.typography.bodySmall, color = colors.error)
+                    is ModelsState.Error -> Text(modelsStatus.message, style = MaterialTheme.typography.bodySmall, color = colors.error)
                 }
             }
         }

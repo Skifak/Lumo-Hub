@@ -14,7 +14,7 @@ import java.util.Locale
 enum class ChatRole(val label: String) { NONE("Без роли"), MENTOR("Наставник"), TRANSLATOR("Переводчик"), CODER("Программист") }
 data class ChatSummary(val id: String, val title: String, val preview: String, val time: String, val role: ChatRole = ChatRole.NONE)
 data class ChatMessage(val id: String, val text: String, val isUser: Boolean, val time: String)
-data class Conversation(val id: String, val title: String, val role: ChatRole = ChatRole.NONE, val messages: List<ChatMessage>)
+data class Conversation(val id: String, val title: String, val role: ChatRole = ChatRole.NONE, val model: String = "", val messages: List<ChatMessage>)
 
 /** Local-first chat store. SharedPreferences keeps the MVP usable without a network. */
 class ChatRepository(context: Context) {
@@ -33,6 +33,7 @@ class ChatRepository(context: Context) {
     fun deleteChat(id: String) { save(load().filterNot { it.id == id }) }
 
     fun setRole(id: String, role: ChatRole) { save(load().map { if (it.id == id) it.copy(role = role) else it }) }
+    fun setModel(id: String, model: String) { save(load().map { if (it.id == id) it.copy(model = model) else it }) }
 
     fun appendMessage(id: String, text: String, isUser: Boolean): ChatMessage {
         val now = clock(); val message = ChatMessage("message-${System.nanoTime()}", text, isUser, now)
@@ -44,11 +45,11 @@ class ChatRepository(context: Context) {
 
     private fun save(items: List<Conversation>) { prefs.edit().putString(KEY, JSONArray().apply { items.forEach { put(encode(it)) } }.toString()).apply(); _conversations.value = items.map(::summary) }
     private fun load(): List<Conversation> = runCatching {
-        val raw = prefs.getString(KEY, null) ?: return@runCatching defaultChats().map { Conversation(it.id, it.title, it.role, emptyList()) }
+        val raw = prefs.getString(KEY, null) ?: return@runCatching defaultChats().map { Conversation(it.id, it.title, it.role, messages = emptyList()) }
         JSONArray(raw).let { a -> (0 until a.length()).map { decode(a.getJSONObject(it)) } }
     }.getOrElse { emptyList() }
-    private fun encode(c: Conversation) = JSONObject().apply { put("id", c.id); put("title", c.title); put("role", c.role.name); put("messages", JSONArray().apply { c.messages.forEach { put(JSONObject().apply { put("id", it.id); put("text", it.text); put("user", it.isUser); put("time", it.time) }) } }) }
-    private fun decode(o: JSONObject): Conversation = Conversation(o.getString("id"), o.getString("title"), runCatching { ChatRole.valueOf(o.optString("role")) }.getOrDefault(ChatRole.NONE), (0 until o.optJSONArray("messages").length()).map { val m = o.getJSONArray("messages").getJSONObject(it); ChatMessage(m.getString("id"), m.getString("text"), m.getBoolean("user"), m.getString("time")) })
+    private fun encode(c: Conversation) = JSONObject().apply { put("id", c.id); put("title", c.title); put("role", c.role.name); put("model", c.model); put("messages", JSONArray().apply { c.messages.forEach { put(JSONObject().apply { put("id", it.id); put("text", it.text); put("user", it.isUser); put("time", it.time) }) } }) }
+    private fun decode(o: JSONObject): Conversation = Conversation(o.getString("id"), o.getString("title"), runCatching { ChatRole.valueOf(o.optString("role")) }.getOrDefault(ChatRole.NONE), o.optString("model"), (0 until o.optJSONArray("messages").length()).map { val m = o.getJSONArray("messages").getJSONObject(it); ChatMessage(m.getString("id"), m.getString("text"), m.getBoolean("user"), m.getString("time")) })
     private fun summary(c: Conversation) = ChatSummary(c.id, c.title, c.messages.lastOrNull()?.text ?: "Черновик первого сообщения…", c.messages.lastOrNull()?.time ?: "только что", c.role)
     private fun autoTitle(text: String) = text.trim().replace(Regex("\\s+"), " ").take(36).let { if (text.trim().length > 36) "$it…" else it }.ifBlank { "Новый чат" }
     private fun clock() = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())

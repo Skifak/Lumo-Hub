@@ -9,6 +9,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.entryProvider
@@ -19,6 +24,9 @@ import com.lumo.hub.data.SettingsRepository
 import com.lumo.hub.data.ThemeMode
 import com.lumo.hub.network.OpenAiClient
 import com.lumo.hub.network.OpenAiProvider
+import com.lumo.hub.network.AppUpdateRepository
+import com.lumo.hub.network.AppUpdateState
+import com.lumo.hub.network.ModelInfo
 import com.lumo.hub.ui.chats.ChatsScreen
 import com.lumo.hub.ui.comingsoon.ComingSoonScreen
 import com.lumo.hub.ui.components.LumoBottomBar
@@ -39,6 +47,9 @@ fun LumoNavHost(
     val context = androidx.compose.ui.platform.LocalContext.current
     val chatRepository = remember(context) { ChatRepository(context) }
     val openAiClient = remember { OpenAiClient() }
+    val updateRepository = remember(context) { AppUpdateRepository(context) }
+    val updateScope = rememberCoroutineScope()
+    var updateState by remember { mutableStateOf<AppUpdateState>(AppUpdateState.Idle) }
     val backStack = rememberNavBackStack(Dashboard)
 
     // Безопасный back: на корневом разделе уводим на Dashboard, чтобы стек
@@ -108,6 +119,8 @@ fun LumoNavHost(
                             title = key.title,
                             chatId = key.chatId,
                             onBack = { goBack() },
+                            settingsRepository = settingsRepository,
+                            openAiClient = openAiClient,
                         )
                     }
                     entry<Settings> {
@@ -118,13 +131,16 @@ fun LumoNavHost(
                             onProviderChange = { settingsRepository.updateProvider(it) },
                             onSaveProvider = { settingsRepository.saveProvider() },
                             onCheckConnection = { provider ->
-                                runCatching {
-                                    openAiClient.listModels(OpenAiProvider(provider.baseUrl, provider.apiKey)).size
-                                }
+                                settingsRepository.setModelsLoading()
+                                runCatching { openAiClient.listModels(OpenAiProvider(provider.baseUrl, provider.apiKey)) }
+                                    .also { settingsRepository.setModelsResult(it) }
                             },
                             onToggleApiKeyVisibility = {
                                 settingsRepository.toggleApiKeyVisibility()
                             },
+                            updateState = updateState,
+                            onCheckForUpdate = { updateState = AppUpdateState.Checking; updateScope.launch { updateState = updateRepository.check() } },
+                            onDownloadUpdate = { release -> updateState = AppUpdateState.Downloading; updateScope.launch { updateState = updateRepository.downloadAndInstall(release) } },
                         )
                     }
                     entry<ComingSoon> {
