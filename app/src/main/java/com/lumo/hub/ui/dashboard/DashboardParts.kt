@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowOutward
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -118,10 +119,11 @@ private fun HeroButton(text: String, onClick: () -> Unit) {
     }
 }
 
-/** Карточка сервиса: AI Chat — активный инструмент. */
+/** Карточки сервисов: AI Chat и Документы (локальная база знаний). */
 @Composable
 fun ToolsGrid(
     onOpenChats: () -> Unit,
+    onOpenDocuments: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier) {
@@ -133,6 +135,15 @@ fun ToolsGrid(
             icon = Icons.Outlined.Psychology,
             active = true,
             onClick = onOpenChats,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(12.dp))
+        ToolCard(
+            title = "Документы",
+            subtitle = "Локальная база знаний и поиск",
+            icon = Icons.Outlined.Description,
+            active = true,
+            onClick = onOpenDocuments,
             modifier = Modifier.fillMaxWidth(),
         )
     }

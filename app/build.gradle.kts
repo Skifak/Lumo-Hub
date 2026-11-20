@@ -2,6 +2,8 @@ plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.ksp)
+  alias(libs.plugins.room3)
 }
 
 android {
@@ -42,6 +44,10 @@ android {
 
 kotlin {
     jvmToolchain(17)
+}
+
+room3 {
+    schemaDirectory("$projectDir/schemas")
 }
 
 dependencies {
@@ -87,4 +93,10 @@ dependencies {
   implementation("androidx.datastore:datastore-preferences:1.1.7")
   implementation("androidx.work:work-runtime-ktx:2.10.1")
   implementation("androidx.core:core-ktx:1.18.0")
+
+  // Knowledge base: Room + bundled SQLite (FTS5 with trigram tokenizer) + PDFBox
+  implementation(libs.androidx.room3.runtime)
+  implementation(libs.androidx.sqlite.bundled)
+  ksp(libs.androidx.room3.compiler)
+  implementation(libs.pdfbox.android)
 }

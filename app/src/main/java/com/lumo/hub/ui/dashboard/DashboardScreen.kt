@@ -26,6 +26,7 @@ import com.lumo.hub.ui.components.StaggerIn
 fun DashboardScreen(
     chats: List<ChatSummary>,
     onOpenChats: () -> Unit,
+    onOpenDocuments: () -> Unit,
     onOpenChat: (ChatSummary) -> Unit,
     onNewChat: () -> Unit,
 ) {
@@ -53,7 +54,7 @@ fun DashboardScreen(
             Spacer(Modifier.height(24.dp))
 
             StaggerIn(index = 2) {
-                ToolsGrid(onOpenChats = onOpenChats)
+                ToolsGrid(onOpenChats = onOpenChats, onOpenDocuments = onOpenDocuments)
             }
             Spacer(Modifier.height(24.dp))
 

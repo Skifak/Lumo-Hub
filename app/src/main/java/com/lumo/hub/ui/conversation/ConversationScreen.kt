@@ -130,6 +130,7 @@ fun ConversationScreen(
 ) {
     val context = LocalContext.current
     val repository = remember { ChatRepository(context) }
+    val knowledgeRepository = remember { com.lumo.hub.data.knowledge.KnowledgeRepository.get(context) }
     var conversation by remember(chatId) { mutableStateOf(repository.conversation(chatId)) }
     var input by remember(chatId) { mutableStateOf(ChatDraftStore.get(chatId).orEmpty()) }
     val modelsState by settingsRepository.state.collectAsStateWithLifecycle()
@@ -205,9 +206,29 @@ fun ConversationScreen(
             var lastSavedAnswer = ""
             var lastSaveNanos = 0L
             try {
+                // RAG: подбираем фрагменты корпуса и кладём их в system-промпт
+                // как единое системное сообщение перед историей.
+                val ragContext = try {
+                    knowledgeRepository.query(userText)
+                } catch (_: Throwable) {
+                    emptyList()
+                }
+                val messages = if (ragContext.isEmpty()) history else {
+                    val system = ChatMessageRequest(
+                        "system",
+                        buildString {
+                            append("Отвечай на основе этих фрагментов документов. Если данных нет — скажи об этом. Цитируй источник в формате [документ, стр. N].\n")
+                            ragContext.forEach { hit ->
+                                append("\n--- ${hit.docName}, стр. ${hit.page} ---\n")
+                                append(hit.text.take(1200))
+                            }
+                        },
+                    )
+                    listOf(system) + history
+                }
                 openAiClient.stream(
                     OpenAiProvider(provider.baseUrl.trim(), provider.apiKey),
-                    ChatCompletionRequest(model = model, messages = history),
+                    ChatCompletionRequest(model = model, messages = messages),
                 ).collect { event ->
                     when (event) {
                         is ChatStreamEvent.Delta -> {

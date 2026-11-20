@@ -32,6 +32,7 @@ import com.lumo.hub.ui.components.LumoBottomBar
 import com.lumo.hub.ui.components.LumoTab
 import com.lumo.hub.ui.conversation.ConversationScreen
 import com.lumo.hub.ui.dashboard.DashboardScreen
+import com.lumo.hub.ui.documents.DocumentsScreen
 import com.lumo.hub.ui.settings.SettingsScreen
 
 /**
@@ -90,6 +91,7 @@ fun LumoNavHost(
                         DashboardScreen(
                             chats = repository.chats.collectAsState().value,
                             onOpenChats = { backStack.add(ChatsList) },
+                            onOpenDocuments = { backStack.add(Documents) },
                             onOpenChat = { chat ->
                                 backStack.add(Conversation(chat.id, chat.title))
                             },
@@ -154,6 +156,9 @@ fun LumoNavHost(
                                  updateState = AppUpdateState.Idle
                              },
                         )
+                    }
+                    entry<Documents> {
+                        DocumentsScreen(onBack = { goBack() })
                     }
                 },
         )

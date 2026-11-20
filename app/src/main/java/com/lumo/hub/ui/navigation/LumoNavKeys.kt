@@ -16,6 +16,9 @@ data object ChatsList : NavKeyMarker
 data object Settings : NavKeyMarker
 
 @Serializable
+data object Documents : NavKeyMarker
+
+@Serializable
 data class Conversation(val chatId: String, val title: String) : NavKeyMarker
 
 /** Маркер, объединяющий ключи с [androidx.navigation3.runtime.NavKey]. */
