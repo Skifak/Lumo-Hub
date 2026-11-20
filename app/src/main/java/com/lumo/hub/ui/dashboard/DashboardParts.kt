@@ -13,9 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ArrowOutward
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.Cloud
-import androidx.compose.material.icons.outlined.Forest
-import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -24,11 +21,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,8 +29,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lumo.hub.data.ChatSummary
-import com.lumo.hub.data.WeatherRepository
-import com.lumo.hub.network.ForecastResponse
 import com.lumo.hub.theme.lumoVisual
 import com.lumo.hub.ui.components.ChatAvatar
 import com.lumo.hub.ui.components.SectionTitle
@@ -63,46 +53,6 @@ fun GreetingBlock(modifier: Modifier = Modifier) {
         modifier = modifier,
     )
 }
-
-@Composable
-fun WeatherCard(repository: WeatherRepository, onClick: () -> Unit) {
-    var forecast by remember { mutableStateOf<ForecastResponse?>(null) }
-    val location = repository.savedLocation()
-    LaunchedEffect(location) { if (location != null) forecast = runCatching { repository.forecast() }.getOrNull() }
-    val colors = MaterialTheme.colorScheme
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.Cloud, contentDescription = null, tint = colors.primary)
-                Spacer(Modifier.size(8.dp))
-                Text("Погода", style = MaterialTheme.typography.titleMedium, color = colors.onSurface)
-                Spacer(Modifier.weight(1f))
-                Text("Открыть", style = MaterialTheme.typography.labelLarge, color = colors.primary)
-            }
-            Spacer(Modifier.height(8.dp))
-            if (location == null) {
-                Text("Добавьте город, чтобы увидеть прогноз", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-            } else if (forecast?.current == null) {
-                Text(location.name, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-                Text("Загрузка прогноза", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-            } else {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text("${forecast!!.current!!.temperatureCelsius.formatOne()} °C", style = MaterialTheme.typography.headlineMedium, color = colors.onSurface)
-                    Spacer(Modifier.size(8.dp))
-                    Text(location.name, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
-                }
-            }
-        }
-    }
-}
-
-private fun Double.formatOne(): String = String.format(java.util.Locale.US, "%.1f", this)
 
 /** Крупная hero-карточка AI Chat с CTA «Новый чат». */
 @Composable
@@ -168,53 +118,23 @@ private fun HeroButton(text: String, onClick: () -> Unit) {
     }
 }
 
-/** Сетка сервисов: AI Chat активен, остальные — «Скоро». */
+/** Карточка сервиса: AI Chat — активный инструмент. */
 @Composable
 fun ToolsGrid(
     onOpenChats: () -> Unit,
-    onOpenComingSoon: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier) {
         SectionTitle(text = "Инструменты")
         Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ToolCard(
-                title = "AI Chat",
-                subtitle = "Диалоги с моделью",
-                icon = Icons.Outlined.Psychology,
-                active = true,
-                onClick = onOpenChats,
-                modifier = Modifier.weight(1f),
-            )
-            ToolCard(
-                title = "Умные грядки",
-                subtitle = "Скоро",
-                icon = Icons.Outlined.Forest,
-                active = false,
-                onClick = onOpenComingSoon,
-                modifier = Modifier.weight(1f),
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ToolCard(
-                title = "Модуль 3",
-                subtitle = "Скоро",
-                icon = Icons.Outlined.GridView,
-                active = false,
-                onClick = onOpenComingSoon,
-                modifier = Modifier.weight(1f),
-            )
-            ToolCard(
-                title = "Модуль 4",
-                subtitle = "Скоро",
-                icon = Icons.Outlined.GridView,
-                active = false,
-                onClick = onOpenComingSoon,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        ToolCard(
+            title = "AI Chat",
+            subtitle = "Диалоги с моделью",
+            icon = Icons.Outlined.Psychology,
+            active = true,
+            onClick = onOpenChats,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

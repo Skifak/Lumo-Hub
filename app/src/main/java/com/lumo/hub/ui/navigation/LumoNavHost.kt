@@ -21,7 +21,6 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.lumo.hub.data.ChatRepository
 import com.lumo.hub.data.SettingsRepository
-import com.lumo.hub.data.WeatherRepository
 import com.lumo.hub.data.ThemeMode
 import com.lumo.hub.network.OpenAiClient
 import com.lumo.hub.network.OpenAiProvider
@@ -29,17 +28,15 @@ import com.lumo.hub.network.AppUpdateRepository
 import com.lumo.hub.network.AppUpdateState
 import com.lumo.hub.network.ModelInfo
 import com.lumo.hub.ui.chats.ChatsScreen
-import com.lumo.hub.ui.comingsoon.ComingSoonScreen
 import com.lumo.hub.ui.components.LumoBottomBar
 import com.lumo.hub.ui.components.LumoTab
 import com.lumo.hub.ui.conversation.ConversationScreen
 import com.lumo.hub.ui.dashboard.DashboardScreen
 import com.lumo.hub.ui.settings.SettingsScreen
-import com.lumo.hub.ui.weather.WeatherScreen
 
 /**
  * Корневая навигация Lumo Hub: три раздела с нижней панелью (Dashboard, Чаты,
- * Настройки) + вложенные экраны (разговор, заглушка) без панели.
+ * Настройки) + вложенный экран разговора без панели.
  */
 @Composable
 fun LumoNavHost(
@@ -49,7 +46,6 @@ fun LumoNavHost(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val repository = chatRepository ?: remember(context) { ChatRepository.get(context) }
-    val weatherRepository = remember(context) { WeatherRepository(context) }
     val openAiClient = remember { OpenAiClient() }
     val updateRepository = remember(context) { AppUpdateRepository(context) }
     val updateScope = rememberCoroutineScope()
@@ -93,7 +89,6 @@ fun LumoNavHost(
                     entry<Dashboard> {
                         DashboardScreen(
                             chats = repository.chats.collectAsState().value,
-                            weatherRepository = weatherRepository,
                             onOpenChats = { backStack.add(ChatsList) },
                             onOpenChat = { chat ->
                                 backStack.add(Conversation(chat.id, chat.title))
@@ -102,14 +97,6 @@ fun LumoNavHost(
                                 val chat = repository.newChat()
                                 backStack.add(Conversation(chat.id, chat.title))
                             },
-                            onOpenComingSoon = { backStack.add(ComingSoon) },
-                            onOpenWeather = { backStack.add(Weather) },
-                        )
-                    }
-                    entry<Weather> {
-                        WeatherScreen(
-                            repository = weatherRepository,
-                            onBack = { goBack() },
                         )
                     }
                     entry<ChatsList> {
@@ -167,9 +154,6 @@ fun LumoNavHost(
                                  updateState = AppUpdateState.Idle
                              },
                         )
-                    }
-                    entry<ComingSoon> {
-                        ComingSoonScreen(onBack = { goBack() })
                     }
                 },
         )

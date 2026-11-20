@@ -60,7 +60,10 @@ class SettingsRepository(context: Context? = null) : ViewModel() {
                     apiKey = ApiKeyStore(context).get().orEmpty(),
                     model = preferences.getString("model", null) ?: "gpt-4o-mini",
                 )
-                _state.value = _state.value.copy(provider = provider, themeMode = readTheme(preferences))
+                _state.value = _state.value.copy(
+                    provider = provider,
+                    themeMode = readTheme(preferences),
+                )
             }
         }
     }

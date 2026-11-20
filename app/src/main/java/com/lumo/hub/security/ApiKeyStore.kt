@@ -9,18 +9,22 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Small Android Keystore-backed secret store. The ciphertext may be kept in preferences. */
-class ApiKeyStore(private val context: Context) {
+/** Small Android Keystore-backed secret store. The ciphertext may be kept in preferences.
+ *  Each named alias holds its own key, so several secrets can live side by side. */
+class ApiKeyStore(
+    private val context: Context,
+    private val alias: String = DEFAULT_ALIAS,
+    private val prefKey: String = DEFAULT_PREF_KEY,
+) {
     private val preferences = context.getSharedPreferences("secure_api_key", Context.MODE_PRIVATE)
-    private val alias = "lumo_api_key"
 
-    fun get(): String? = preferences.getString("value", null)?.let { decrypt(it) }
+    fun get(): String? = preferences.getString(prefKey, null)?.let { decrypt(it) }
 
     fun put(value: String) {
         if (value.isBlank()) {
-            preferences.edit().remove("value").apply()
+            preferences.edit().remove(prefKey).apply()
         } else {
-            preferences.edit().putString("value", encrypt(value)).apply()
+            preferences.edit().putString(prefKey, encrypt(value)).apply()
         }
     }
 
@@ -49,4 +53,9 @@ class ApiKeyStore(private val context: Context) {
             init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
         }.doFinal(bytes.copyOfRange(12, bytes.size)).toString(StandardCharsets.UTF_8)
     }.getOrNull()
+
+    private companion object {
+        const val DEFAULT_ALIAS = "lumo_api_key"
+        const val DEFAULT_PREF_KEY = "value"
+    }
 }

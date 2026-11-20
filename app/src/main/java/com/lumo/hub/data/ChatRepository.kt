@@ -15,10 +15,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
-enum class ChatRole(val label: String) { NONE("Без роли"), MENTOR("Наставник"), TRANSLATOR("Переводчик"), CODER("Программист") }
-data class ChatSummary(val id: String, val title: String, val preview: String, val time: String, val role: ChatRole = ChatRole.NONE, val timestamp: Long = 0L)
+data class ChatSummary(val id: String, val title: String, val preview: String, val time: String, val timestamp: Long = 0L)
 data class ChatMessage(val id: String, val text: String, val isUser: Boolean, val time: String, val timestamp: Long = 0L)
-data class Conversation(val id: String, val title: String, val role: ChatRole = ChatRole.NONE, val model: String = "", val messages: List<ChatMessage>, val timestamp: Long = 0L)
+data class Conversation(val id: String, val title: String, val model: String = "", val messages: List<ChatMessage>, val timestamp: Long = 0L)
 
 /** Durable local-first store. All instances in one process share the same application store. */
 class ChatRepository(context: Context) {
@@ -33,7 +32,6 @@ class ChatRepository(context: Context) {
     }
 
     fun deleteChat(id: String) { store.write(store.read().filterNot { it.id == id }) }
-    fun setRole(id: String, role: ChatRole) { store.write(store.read().map { if (it.id == id) it.copy(role = role) else it }) }
     fun setModel(id: String, model: String) { store.write(store.read().map { if (it.id == id) it.copy(model = model) else it }) }
 
     fun appendMessage(id: String, text: String, isUser: Boolean): ChatMessage {
@@ -47,7 +45,7 @@ class ChatRepository(context: Context) {
         store.write(store.read().map { c -> if (c.id == id) c.copy(messages = c.messages.map { if (it.id == messageId) it.copy(text = text) else it }) else c })
     }
 
-    private fun summary(c: Conversation) = ChatSummary(c.id, c.title, c.messages.lastOrNull()?.text ?: "Черновик первого сообщения…", c.messages.lastOrNull()?.time ?: "только что", c.role, c.timestamp)
+    private fun summary(c: Conversation) = ChatSummary(c.id, c.title, c.messages.lastOrNull()?.text ?: "Черновик первого сообщения…", c.messages.lastOrNull()?.time ?: "только что", c.timestamp)
     private fun autoTitle(text: String) = text.trim().replace(Regex("\\s+"), " ").take(36).let { if (text.trim().length > 36) "$it…" else it }.ifBlank { "Новый чат" }
     private fun clock(timestamp: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
 
@@ -112,7 +110,7 @@ class ChatRepository(context: Context) {
             JSONArray(raw).let { a -> (0 until a.length()).mapNotNull { index -> runCatching { decode(a.getJSONObject(index)) }.getOrNull() } }
         }.getOrElse { emptyList() }
         private fun decode(file: File): List<Conversation> = decode(file.readText())
-        private fun encode(items: List<Conversation>) = JSONArray().apply { items.forEach { c -> put(JSONObject().apply { put("id", c.id); put("title", c.title); put("role", c.role.name); put("model", c.model); put("timestamp", c.timestamp); put("messages", JSONArray().apply { c.messages.forEach { m -> put(JSONObject().apply { put("id", m.id); put("text", m.text); put("user", m.isUser); put("time", m.time); put("timestamp", m.timestamp) }) } }) }) } }.toString()
+        private fun encode(items: List<Conversation>) = JSONArray().apply { items.forEach { c -> put(JSONObject().apply { put("id", c.id); put("title", c.title); put("model", c.model); put("timestamp", c.timestamp); put("messages", JSONArray().apply { c.messages.forEach { m -> put(JSONObject().apply { put("id", m.id); put("text", m.text); put("user", m.isUser); put("time", m.time); put("timestamp", m.timestamp) }) } }) }) } }.toString()
         private fun decode(o: JSONObject): Conversation {
             val messages = o.optJSONArray("messages")?.let { array ->
                 (0 until array.length()).mapNotNull { index -> runCatching {
@@ -120,10 +118,11 @@ class ChatRepository(context: Context) {
                     ChatMessage(m.getString("id"), m.getString("text"), m.getBoolean("user"), m.optString("time"), m.optLong("timestamp", 0L))
                 }.getOrNull() }
             } ?: emptyList()
+            // Older stores carry a "role" field; it is ignored on read so history stays loadable.
             val timestamp = o.optLong("timestamp", 0L).takeIf { it > 0L } ?: messages.maxOfOrNull { it.timestamp } ?: 0L
-            return Conversation(o.getString("id"), o.getString("title"), runCatching { ChatRole.valueOf(o.optString("role")) }.getOrDefault(ChatRole.NONE), o.optString("model"), messages, timestamp)
+            return Conversation(o.getString("id"), o.getString("title"), o.optString("model"), messages, timestamp)
         }
-        private fun summary(c: Conversation) = ChatSummary(c.id, c.title, c.messages.lastOrNull()?.text ?: "Черновик первого сообщения…", c.messages.lastOrNull()?.time ?: "только что", c.role, c.timestamp)
+        private fun summary(c: Conversation) = ChatSummary(c.id, c.title, c.messages.lastOrNull()?.text ?: "Черновик первого сообщения…", c.messages.lastOrNull()?.time ?: "только что", c.timestamp)
     }
 
     companion object {

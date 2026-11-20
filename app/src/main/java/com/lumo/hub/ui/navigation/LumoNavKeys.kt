@@ -10,9 +10,6 @@ import kotlinx.serialization.Serializable
 data object Dashboard : NavKeyMarker
 
 @Serializable
-data object Weather : NavKeyMarker
-
-@Serializable
 data object ChatsList : NavKeyMarker
 
 @Serializable
@@ -20,9 +17,6 @@ data object Settings : NavKeyMarker
 
 @Serializable
 data class Conversation(val chatId: String, val title: String) : NavKeyMarker
-
-@Serializable
-data object ComingSoon : NavKeyMarker
 
 /** Маркер, объединяющий ключи с [androidx.navigation3.runtime.NavKey]. */
 sealed interface NavKeyMarker : androidx.navigation3.runtime.NavKey

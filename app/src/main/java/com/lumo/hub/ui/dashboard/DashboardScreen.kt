@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lumo.hub.data.ChatSummary
-import com.lumo.hub.data.WeatherRepository
 import com.lumo.hub.ui.components.StaggerIn
 
 /**
@@ -26,12 +25,9 @@ import com.lumo.hub.ui.components.StaggerIn
 @Composable
 fun DashboardScreen(
     chats: List<ChatSummary>,
-    weatherRepository: WeatherRepository,
     onOpenChats: () -> Unit,
     onOpenChat: (ChatSummary) -> Unit,
     onNewChat: () -> Unit,
-    onOpenComingSoon: () -> Unit,
-    onOpenWeather: () -> Unit,
 ) {
     Column(
         Modifier
@@ -52,21 +48,16 @@ fun DashboardScreen(
             Spacer(Modifier.height(20.dp))
 
             StaggerIn(index = 1) {
-                WeatherCard(repository = weatherRepository, onClick = onOpenWeather)
-            }
-            Spacer(Modifier.height(20.dp))
-
-            StaggerIn(index = 2) {
                 HeroChatCard(onNewChat = onNewChat)
             }
             Spacer(Modifier.height(24.dp))
 
-            StaggerIn(index = 3) {
-                ToolsGrid(onOpenChats = onOpenChats, onOpenComingSoon = onOpenComingSoon)
+            StaggerIn(index = 2) {
+                ToolsGrid(onOpenChats = onOpenChats)
             }
             Spacer(Modifier.height(24.dp))
 
-            StaggerIn(index = 4) {
+            StaggerIn(index = 3) {
                 RecentChats(
                     chats = chats,
                     onOpenChat = onOpenChat,
