@@ -1,5 +1,6 @@
 package com.lumo.hub.data.knowledge
 
+import androidx.room3.ColumnInfo
 import androidx.room3.Dao
 import androidx.room3.Database
 import androidx.room3.Entity
@@ -8,6 +9,8 @@ import androidx.room3.PrimaryKey
 import androidx.room3.Query
 import androidx.room3.RoomDatabase
 import androidx.room3.Upsert
+import androidx.room3.migration.Migration
+import androidx.sqlite.SQLiteConnection
 
 enum class DocumentStatus { IMPORTING, READY, ERROR }
 
@@ -25,6 +28,9 @@ data class DocumentEntity(
     val addedAt: Long,
     val pageCount: Int,
     val status: String = DocumentStatus.READY.name,
+    /** Исключён из AI-контекста: фрагменты не попадают в модель, в UI доступен полностью. */
+    @ColumnInfo(defaultValue = "0")
+    val sensitive: Boolean = false,
 )
 
 /**
@@ -69,20 +75,46 @@ interface KnowledgeDao {
     @Query("DELETE FROM documents WHERE id = :id")
     suspend fun deleteDocument(id: String)
 
+    @Query("UPDATE documents SET sensitive = :sensitive WHERE id = :id")
+    suspend fun setSensitive(id: String, sensitive: Boolean)
+
     @Query("DELETE FROM chunks WHERE docId = :docId")
     suspend fun deleteChunks(docId: String)
 
     @Insert
     suspend fun insertChunks(chunks: List<ChunkEntity>)
 
+    @Query("SELECT * FROM chunks WHERE docId = :docId AND page = :page ORDER BY ordinal")
+    suspend fun chunksByPage(docId: String, page: Int): List<ChunkEntity>
+
+    @Query("SELECT * FROM chunks WHERE docId = :docId ORDER BY ordinal")
+    suspend fun chunksByDoc(docId: String): List<ChunkEntity>
+
+    @Query("UPDATE chunks SET text = :text WHERE rowId = :rowId")
+    suspend fun updateChunkText(rowId: Long, text: String)
+
     // Поиск выполняется через RoomDatabase.useReaderConnection напрямую —
     // FTS-таблица создаётся после Room-схемы, поэтому @Query здесь неприменим.
 
 }
 
+/** Миграция v1→v2: флаг «Чувствительный документ» в таблице documents. */
+val MIGRATION_1_2 = object : Migration(1, 2) {
+    override suspend fun migrate(connection: SQLiteConnection) {
+        val stmt = connection.prepare(
+            "ALTER TABLE documents ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0"
+        )
+        try {
+            stmt.step()
+        } finally {
+            stmt.close()
+        }
+    }
+}
+
 @Database(
     entities = [DocumentEntity::class, ChunkEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class KnowledgeDatabase : RoomDatabase() {

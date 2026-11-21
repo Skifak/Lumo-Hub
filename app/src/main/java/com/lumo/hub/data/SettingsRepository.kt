@@ -39,6 +39,8 @@ data class SettingsUiState(
     val provider: ProviderProfile = ProviderProfile(),
     val apiKeyVisible: Boolean = false,
     val modelsState: ModelsState = ModelsState.Idle,
+    /** B2: контекстизация чанков при импорте (по умолчанию выкл.). */
+    val chunkContextualization: Boolean = false,
 )
 
 class SettingsRepository(context: Context? = null) : ViewModel() {
@@ -63,6 +65,7 @@ class SettingsRepository(context: Context? = null) : ViewModel() {
                 _state.value = _state.value.copy(
                     provider = provider,
                     themeMode = readTheme(preferences),
+                    chunkContextualization = preferences.getBoolean("chunk_contextualization", false),
                 )
             }
         }
@@ -103,6 +106,13 @@ class SettingsRepository(context: Context? = null) : ViewModel() {
 
     fun toggleApiKeyVisibility() {
         _state.value = _state.value.copy(apiKeyVisible = !_state.value.apiKeyVisible)
+    }
+
+    /** B2: тумблер контекстизации чанков при импорте. */
+    fun toggleChunkContextualization() {
+        val enabled = !_state.value.chunkContextualization
+        _state.value = _state.value.copy(chunkContextualization = enabled)
+        persist { it.edit().putBoolean("chunk_contextualization", enabled).apply() }
     }
 
     private fun persist(action: (android.content.SharedPreferences) -> Unit) {

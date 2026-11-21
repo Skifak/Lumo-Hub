@@ -11,12 +11,14 @@ data class ChatCompletionRequest(
     val messages: List<ChatMessageRequest>,
     val temperature: Double? = null,
     val stream: Boolean = false,
+    val stream_options: Map<String, Boolean>? = null,
 )
 data class ModelInfo(val id: String, val ownedBy: String? = null)
 data class ChatCompletion(val id: String?, val model: String?, val content: String)
 sealed interface ChatStreamEvent {
     data class Delta(val text: String) : ChatStreamEvent
     data class Completed(val finishReason: String?) : ChatStreamEvent
+    data class Usage(val promptTokens: Int, val completionTokens: Int) : ChatStreamEvent
 }
 
 sealed class OpenAiException(message: String, cause: Throwable? = null) : Exception(message, cause) {
@@ -48,7 +50,8 @@ object NetworkErrorMessages {
 
 @Serializable internal data class ModelsResponse(val data: List<ModelJson> = emptyList())
 @Serializable internal data class ModelJson(val id: String, val owned_by: String? = null)
-@Serializable internal data class CompletionJson(val id: String? = null, val model: String? = null, val choices: List<ChoiceJson> = emptyList())
+@Serializable internal data class CompletionJson(val id: String? = null, val model: String? = null, val choices: List<ChoiceJson> = emptyList(), val usage: UsageJson? = null)
 @Serializable internal data class ChoiceJson(val message: MessageJson? = null, val delta: DeltaJson? = null, val finish_reason: String? = null)
 @Serializable internal data class MessageJson(val content: String? = null)
 @Serializable internal data class DeltaJson(val content: String? = null)
+@Serializable internal data class UsageJson(val prompt_tokens: Int? = null, val completion_tokens: Int? = null)

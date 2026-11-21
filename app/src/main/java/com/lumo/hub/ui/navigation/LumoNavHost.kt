@@ -20,6 +20,7 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import com.lumo.hub.data.ChatRepository
+import com.lumo.hub.data.ImportContextualizer
 import com.lumo.hub.data.SettingsRepository
 import com.lumo.hub.data.ThemeMode
 import com.lumo.hub.network.OpenAiClient
@@ -139,6 +140,9 @@ fun LumoNavHost(
                             onToggleApiKeyVisibility = {
                                 settingsRepository.toggleApiKeyVisibility()
                             },
+                            onToggleChunkContextualization = {
+                                settingsRepository.toggleChunkContextualization()
+                            },
                             updateState = updateState,
                             onCheckForUpdate = { updateState = AppUpdateState.Checking; updateScope.launch { updateState = updateRepository.check() } },
                              onDownloadUpdate = { release ->
@@ -158,7 +162,21 @@ fun LumoNavHost(
                         )
                     }
                     entry<Documents> {
-                        DocumentsScreen(onBack = { goBack() })
+                        DocumentsScreen(
+                            onBack = { goBack() },
+                            contextualize = { name, page, text ->
+                                val s = settingsRepository.state.value
+                                if (!s.chunkContextualization || s.provider.apiKey.isBlank()) {
+                                    null
+                                } else {
+                                    ImportContextualizer(
+                                        openAiClient,
+                                        OpenAiProvider(s.provider.baseUrl.trim(), s.provider.apiKey),
+                                        s.provider.model,
+                                    ).contextFor(name, page, text)
+                                }
+                            },
+                        )
                     }
                 },
         )

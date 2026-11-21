@@ -16,7 +16,7 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 data class ChatSummary(val id: String, val title: String, val preview: String, val time: String, val timestamp: Long = 0L)
-data class ChatMessage(val id: String, val text: String, val isUser: Boolean, val time: String, val timestamp: Long = 0L)
+data class ChatMessage(val id: String, val text: String, val isUser: Boolean, val time: String, val timestamp: Long = 0L, val kind: String = "text")
 data class Conversation(val id: String, val title: String, val model: String = "", val messages: List<ChatMessage>, val timestamp: Long = 0L)
 
 /** Durable local-first store. All instances in one process share the same application store. */
@@ -41,8 +41,20 @@ class ChatRepository(context: Context) {
         return message
     }
 
-    fun updateMessage(id: String, messageId: String, text: String) {
-        store.write(store.read().map { c -> if (c.id == id) c.copy(messages = c.messages.map { if (it.id == messageId) it.copy(text = text) else it }) else c })
+    fun updateMessage(id: String, messageId: String, text: String, kind: String = "text") {
+        store.write(store.read().map { c -> if (c.id == id) c.copy(messages = c.messages.map { if (it.id == messageId) it.copy(text = text, kind = kind) else it }) else c })
+    }
+
+    /** Удаляет все сообщения после указанного (само сообщение сохраняется). */
+    fun deleteMessagesAfter(id: String, messageId: String) {
+        store.write(store.read().map { c ->
+            if (c.id != id) c else {
+                val keep = c.messages.takeWhile { it.id != messageId }.let { before ->
+                    before + (c.messages.firstOrNull { it.id == messageId } ?: return@let before)
+                }
+                c.copy(messages = keep)
+            }
+        })
     }
 
     private fun summary(c: Conversation) = ChatSummary(c.id, c.title, c.messages.lastOrNull()?.text ?: "Черновик первого сообщения…", c.messages.lastOrNull()?.time ?: "только что", c.timestamp)
@@ -110,12 +122,12 @@ class ChatRepository(context: Context) {
             JSONArray(raw).let { a -> (0 until a.length()).mapNotNull { index -> runCatching { decode(a.getJSONObject(index)) }.getOrNull() } }
         }.getOrElse { emptyList() }
         private fun decode(file: File): List<Conversation> = decode(file.readText())
-        private fun encode(items: List<Conversation>) = JSONArray().apply { items.forEach { c -> put(JSONObject().apply { put("id", c.id); put("title", c.title); put("model", c.model); put("timestamp", c.timestamp); put("messages", JSONArray().apply { c.messages.forEach { m -> put(JSONObject().apply { put("id", m.id); put("text", m.text); put("user", m.isUser); put("time", m.time); put("timestamp", m.timestamp) }) } }) }) } }.toString()
+        private fun encode(items: List<Conversation>) = JSONArray().apply { items.forEach { c -> put(JSONObject().apply { put("id", c.id); put("title", c.title); put("model", c.model); put("timestamp", c.timestamp); put("messages", JSONArray().apply { c.messages.forEach { m -> put(JSONObject().apply { put("id", m.id); put("text", m.text); put("user", m.isUser); put("time", m.time); put("timestamp", m.timestamp); put("kind", m.kind) }) } }) }) } }.toString()
         private fun decode(o: JSONObject): Conversation {
             val messages = o.optJSONArray("messages")?.let { array ->
                 (0 until array.length()).mapNotNull { index -> runCatching {
                     val m = array.getJSONObject(index)
-                    ChatMessage(m.getString("id"), m.getString("text"), m.getBoolean("user"), m.optString("time"), m.optLong("timestamp", 0L))
+                    ChatMessage(m.getString("id"), m.getString("text"), m.getBoolean("user"), m.optString("time"), m.optLong("timestamp", 0L), m.optString("kind", "text").ifEmpty { "text" })
                 }.getOrNull() }
             } ?: emptyList()
             // Older stores carry a "role" field; it is ignored on read so history stays loadable.

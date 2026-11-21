@@ -31,6 +31,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,13 +42,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.lumo.hub.data.ChatPrompts
 import com.lumo.hub.data.ProviderProfile
 import com.lumo.hub.data.SettingsUiState
 import com.lumo.hub.data.ModelsState
+import com.lumo.hub.data.SystemPromptStore
 import com.lumo.hub.data.ThemeMode
 import com.lumo.hub.network.ModelInfo
 import com.lumo.hub.theme.lumoVisual
@@ -67,6 +71,7 @@ fun SettingsScreen(
     onThemeChange: (ThemeMode) -> Unit,
     onProviderChange: ((ProviderProfile) -> ProviderProfile) -> Unit,
     onToggleApiKeyVisibility: () -> Unit,
+    onToggleChunkContextualization: () -> Unit = {},
     onSaveProvider: () -> Unit = {},
     onCheckConnection: suspend (ProviderProfile) -> Result<List<ModelInfo>> = { Result.success(emptyList()) },
     updateState: AppUpdateState = AppUpdateState.Idle,
@@ -78,6 +83,7 @@ fun SettingsScreen(
     var connectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.Idle) }
     val scope = rememberCoroutineScope()
     val colors = MaterialTheme.colorScheme
+    val context = LocalContext.current
 
     Column(
         Modifier
@@ -287,8 +293,113 @@ fun SettingsScreen(
 
         StaggerIn(index = 3) {
             Column {
+                SectionTitle(text = "Системная инструкция")
+                Spacer(Modifier.height(10.dp))
+                Card(
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text(
+                            "Правится только базовая инструкция (SYSTEM.md). " +
+                                "Протокол поиска добавляется автоматически.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        var systemDraft by remember { mutableStateOf(SystemPromptStore.get(context)) }
+                        var systemStatus by remember { mutableStateOf<String?>(null) }
+                        OutlinedTextField(
+                            value = systemDraft,
+                            onValueChange = {
+                                systemDraft = it
+                                systemStatus = null
+                            },
+                            label = { Text("Базовая инструкция") },
+                            minLines = 4,
+                            maxLines = 10,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = ChatPrompts.SEARCH_PROTOCOL,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Протокол поиска (добавляется автоматически)") },
+                            minLines = 3,
+                            maxLines = 10,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = {
+                                    SystemPromptStore.set(context, systemDraft)
+                                    systemStatus = "Сохранено"
+                                },
+                                shape = MaterialTheme.shapes.medium,
+                            ) {
+                                Text("Сохранить")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    SystemPromptStore.reset(context)
+                                    systemDraft = ChatPrompts.BASE_INSTRUCTION
+                                    systemStatus = "Сброшено к умолчанию"
+                                },
+                                shape = MaterialTheme.shapes.medium,
+                            ) {
+                                Text("Сбросить")
+                            }
+                        }
+                        if (systemStatus != null) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                systemStatus!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.primary,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(22.dp))
+
+        StaggerIn(index = 4) {
+            Column {
                 SectionTitle(text = "Данные")
                 Spacer(Modifier.height(10.dp))
+                Card(
+                    shape = MaterialTheme.shapes.large,
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Контекстизация чанков при импорте",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = colors.onSurface,
+                            )
+                            Text(
+                                text = "Модель добавляет фрагментам пояснения о месте в документе",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = state.chunkContextualization,
+                            onCheckedChange = { onToggleChunkContextualization() },
+                        )
+                    }
+                }
                 Card(
                     shape = MaterialTheme.shapes.large,
                     colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),

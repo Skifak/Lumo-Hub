@@ -76,6 +76,11 @@ class OpenAiClient(
                 val choice = parsed.choices.firstOrNull()
                 choice?.delta?.content?.takeIf { it.isNotEmpty() }?.let { trySend(ChatStreamEvent.Delta(it)) }
                 choice?.finish_reason?.let { trySend(ChatStreamEvent.Completed(it)) }
+                parsed.usage?.let { usage ->
+                    if (usage.prompt_tokens != null || usage.completion_tokens != null) {
+                        trySend(ChatStreamEvent.Usage(usage.prompt_tokens ?: 0, usage.completion_tokens ?: 0))
+                    }
+                }
             }
         })
         awaitClose { call.cancel() }
